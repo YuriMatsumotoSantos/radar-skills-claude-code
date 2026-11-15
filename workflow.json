@@ -1,0 +1,529 @@
+{
+  "name": "Radar de skills do Claude Code",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "name": "Todo dia as 8h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "8a2125d2-3523-4dc2-9990-bba40dd040d8"
+    },
+    {
+      "parameters": {},
+      "name": "Rodar na mao",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        208
+      ],
+      "id": "53b5e44e-08f5-4d48-9cd6-9b7b5722ed21"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1",
+              "name": "reposFixos",
+              "value": "anthropics/skills,mattpocock/skills,multica-ai/andrej-karpathy-skills,shanraisshan/claude-code-best-practice,sickn33/agentic-awesome-skills,alirezarezvani/claude-skills",
+              "type": "string"
+            },
+            {
+              "id": "2",
+              "name": "buscaGithub",
+              "value": "topic:claude-skills stars:>=10",
+              "type": "string"
+            },
+            {
+              "id": "3",
+              "name": "diasDescoberta",
+              "value": 7,
+              "type": "number"
+            },
+            {
+              "id": "4",
+              "name": "saltoEstrelas",
+              "value": 500,
+              "type": "number"
+            },
+            {
+              "id": "5",
+              "name": "maxItens",
+              "value": 5,
+              "type": "number"
+            },
+            {
+              "id": "6",
+              "name": "chatId",
+              "value": "COLE_AQUI_SEU_CHAT_ID",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        224,
+        96
+      ],
+      "id": "801455e5-2e7e-4ac9-b566-a338d8e92cd2"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $json.reposFixos.split(',').map(r => ({ json: { repo: r.trim() } }));"
+      },
+      "name": "Lista fixa",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "id": "cd453374-59bd-49d9-9381-522b07cd942f"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $json.repo }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Dados do repo fixo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        656,
+        0
+      ],
+      "id": "6aa4533a-1e4f-46c4-9265-afd777b8dd49",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://api.github.com/search/repositories",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $json.buscaGithub + ' created:>' + $now.minus({ days: $json.diasDescoberta }).toFormat('yyyy-MM-dd') }}"
+            },
+            {
+              "name": "sort",
+              "value": "stars"
+            },
+            {
+              "name": "order",
+              "value": "desc"
+            },
+            {
+              "name": "per_page",
+              "value": "10"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Buscar repos novos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        656,
+        208
+      ],
+      "id": "666cd453-924b-4515-8258-131bf8c1eb4c",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {},
+      "name": "Juntar",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        880,
+        96
+      ],
+      "id": "3ffab947-f085-4d73-8cb0-eb8946ca365e"
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Config').first().json;\nconst memoria = $getWorkflowStaticData('global');\nmemoria.estrelas = memoria.estrelas || {};\nconst repos = {};\nfor (const { json: j } of $input.all()) {\n  for (const r of (j.items || [j])) if (r.full_name) repos[r.full_name] = r;\n}\nconst candidatos = [];\nfor (const r of Object.values(repos)) {\n  const antes = memoria.estrelas[r.full_name];\n  const ganho = antes === undefined ? null : r.stargazers_count - antes;\n  const item = {\n    repo: r.full_name, url: r.html_url, descricao: r.description || '',\n    estrelas: r.stargazers_count, ganho, forks: r.forks_count, issues: r.open_issues_count,\n    criado: r.created_at.slice(0, 10), ultimoPush: r.pushed_at.slice(0, 10),\n    motivo: antes === undefined ? 'novo no radar' : `+${ganho} estrelas desde a ultima vez`,\n  };\n  if (antes === undefined || ganho >= cfg.saltoEstrelas) candidatos.push(item);\n  else memoria.estrelas[r.full_name] = r.stargazers_count;\n}\ncandidatos.sort((a, b) => (b.ganho ?? b.estrelas) - (a.ganho ?? a.estrelas));\nconst novos = candidatos.slice(0, cfg.maxItens);\n// Os que ficaram de fora nao entram na memoria, para aparecer num dia seguinte.\nfor (const n of novos) memoria.estrelas[n.repo] = n.estrelas;\nreturn [{ json: { novos, analisados: Object.keys(repos).length } }];"
+      },
+      "name": "Filtrar novidades",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1104,
+        96
+      ],
+      "id": "a7e9e297-122e-433f-b9ae-6503562e08de"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.novos.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Tem novidade?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1328,
+        96
+      ],
+      "id": "03fa7725-3211-4768-b834-33415c1cd09c"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.first().json.novos.map(r => ({ json: r }));"
+      },
+      "name": "Separar repositorios",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1536,
+        0
+      ],
+      "id": "18b99a1e-b532-44ac-bf53-c6a3b2243ebe"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $json.repo }}/readme",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github.raw"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "name": "Ler README",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1760,
+        0
+      ],
+      "id": "a7a4303e-ecb1-43c3-bd2e-12317081ff29",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const repos = $('Separar repositorios').all().map(i => i.json);\nconst readmes = $input.all().map(i => typeof i.json.data === 'string' ? i.json.data.slice(0, 3000) : '');\nconst blocos = repos.map((r, i) => `REPO: ${r.repo}\nDESCRICAO: ${r.descricao}\nMETRICAS: ${r.estrelas} estrelas (${r.motivo}), ${r.forks} forks, ${r.issues} issues abertas, criado em ${r.criado}, ultimo push em ${r.ultimoPush}\nREADME:\n${readmes[i] || '(sem README)'}`);\nconst prompt = `Voce avalia repositorios de skills para o Claude Code. O leitor e um estudante de Engenharia de Computacao que usa o Claude Code todo dia e quer ser AI Engineer.\n\nPara cada repositorio, responda em portugues, em frases curtas:\n- o_que_e: o que o repositorio e, em 1 frase.\n- para_quem: que tipo de pessoa ou projeto aproveita.\n- para_que: que tarefa ele resolve na pratica.\n- veredito: \"usar\" (solido e util para o leitor), \"testar\" (promissor, mas novo ou pouco provado) ou \"ignorar\" (hype, so lista de links, abandonado ou fora do tema).\n- motivo: por que esse veredito, em 1 frase, citando as metricas quando ajudarem.\n\nMuitas estrelas e push recente indicam projeto vivo. Repositorio novo com README vago indica hype. Nao invente nada que nao esteja no README ou nas metricas. Use o nome do repositorio exatamente como aparece em REPO.\n\n` + blocos.join('\\n\\n---\\n\\n');\nreturn [{ json: { prompt } }];"
+      },
+      "name": "Montar prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1984,
+        0
+      ],
+      "id": "01f9a254-5c02-414e-b633-051d4a288381"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  contents: [{ parts: [{ text: $json.prompt }] }],\n  generationConfig: {\n    temperature: 0.2,\n    responseMimeType: \"application/json\",\n    responseSchema: {\n      type: \"ARRAY\",\n      items: {\n        type: \"OBJECT\",\n        properties: {\n          repo: { type: \"STRING\" },\n          o_que_e: { type: \"STRING\" },\n          para_quem: { type: \"STRING\" },\n          para_que: { type: \"STRING\" },\n          veredito: { type: \"STRING\", enum: [\"usar\", \"testar\", \"ignorar\"] },\n          motivo: { type: \"STRING\" }\n        },\n        required: [\"repo\", \"o_que_e\", \"para_quem\", \"para_que\", \"veredito\", \"motivo\"]\n      }\n    }\n  }\n}) }}",
+        "options": {}
+      },
+      "name": "Gemini avalia",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2208,
+        0
+      ],
+      "id": "0682c406-e377-4573-b698-d04e5c93614d"
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Config').first().json;\nconst repos = Object.fromEntries($('Separar repositorios').all().map(i => [i.json.repo, i.json]));\nconst analises = JSON.parse($input.first().json.candidates[0].content.parts[0].text);\nconst ordem = { usar: 0, testar: 1, ignorar: 2 };\nconst linhas = analises\n  .filter(a => repos[a.repo])\n  .sort((a, b) => ordem[a.veredito] - ordem[b.veredito])\n  .map(a => {\n    const r = repos[a.repo];\n    return `[${a.veredito.toUpperCase()}] ${a.repo}\n${r.estrelas} estrelas, ${r.motivo}, ultimo push ${r.ultimoPush}\n${a.o_que_e}\nPara quem: ${a.para_quem}\nPara que: ${a.para_que}\nPor que: ${a.motivo}\n${r.url}`;\n  });\nconst mensagem = `Skills do Claude Code: ${linhas.length} novidade(s) hoje\\n\\n` + linhas.join('\\n\\n');\nreturn [{ json: { mensagem: mensagem.slice(0, 4000), chatId: cfg.chatId } }];"
+      },
+      "name": "Montar mensagem",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2416,
+        0
+      ],
+      "id": "f2dd2bf2-04d7-4e4f-b7b8-e848b880b7b7"
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Config').first().json;\nreturn [{ json: { mensagem: `Skills do Claude Code: nada novo hoje (${$json.analisados} repositorios conferidos).`, chatId: cfg.chatId } }];"
+      },
+      "name": "Mensagem sem novidade",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1536,
+        224
+      ],
+      "id": "cdb343e8-dc33-42d1-a357-2b5693eb027a"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ $json.mensagem }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "name": "Avisar no Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2640,
+        96
+      ],
+      "id": "685d05b5-350d-475b-b503-e4ba99bfb226"
+    }
+  ],
+  "connections": {
+    "Todo dia as 8h": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rodar na mao": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Lista fixa",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Buscar repos novos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lista fixa": {
+      "main": [
+        [
+          {
+            "node": "Dados do repo fixo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dados do repo fixo": {
+      "main": [
+        [
+          {
+            "node": "Juntar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar repos novos": {
+      "main": [
+        [
+          {
+            "node": "Juntar",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Juntar": {
+      "main": [
+        [
+          {
+            "node": "Filtrar novidades",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrar novidades": {
+      "main": [
+        [
+          {
+            "node": "Tem novidade?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tem novidade?": {
+      "main": [
+        [
+          {
+            "node": "Separar repositorios",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mensagem sem novidade",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Separar repositorios": {
+      "main": [
+        [
+          {
+            "node": "Ler README",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ler README": {
+      "main": [
+        [
+          {
+            "node": "Montar prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar prompt": {
+      "main": [
+        [
+          {
+            "node": "Gemini avalia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini avalia": {
+      "main": [
+        [
+          {
+            "node": "Montar mensagem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar mensagem": {
+      "main": [
+        [
+          {
+            "node": "Avisar no Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mensagem sem novidade": {
+      "main": [
+        [
+          {
+            "node": "Avisar no Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  }
+}
