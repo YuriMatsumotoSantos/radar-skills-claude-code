@@ -9,7 +9,7 @@ Automação em n8n que me manda, todo dia às 8h, um resumo no Telegram com as s
 ### Como funciona
 
 ```mermaid
-flowchart LR
+flowchart TD
   A[Gatilho 8h] --> B[Config]
   B --> C[Repos fixos no GitHub]
   B --> D[Busca de repos novos no GitHub]
